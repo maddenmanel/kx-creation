@@ -1,0 +1,51 @@
+name: kx-creation
+
+services:
+  client:
+    restart: always
+    build:
+      context: client
+      dockerfile: Dockerfile
+    container_name: kx-creation-client
+    command: ["gunicorn", "--worker-class", "uvicorn.workers.UvicornWorker", "--workers", "${WORKERS}",
+              "--bind", "${HOST}:${APP_PORT}", "--log-level", "${LOG_LEVEL}", "--graceful-timeout", "${TIMEOUT}",
+              "--timeout", "${TIMEOUT}", "--keep-alive", "${KEEP_ALIVE}", "--access-logfile", "-", "${MODULE}:${VARIABLE}"]
+    ulimits:
+      core: 0
+    environment:
+      - QWEN_BASE_URL=${QWEN_BASE_URL}
+      - QWEN_MODEL=${QWEN_MODEL}
+      - QWEN_API_KEY=${QWEN_API_KEY}
+    ports:
+      - "${HOST_PORT}:${APP_PORT}"
+    networks:
+      - kx
+
+  nginx:
+    restart: always
+    build:
+      context: nginx
+      dockerfile: Dockerfile
+    container_name: kx-creation-nginx
+    command: ["/bin/bash", "-c",
+              "envsubst '$${NGINX_PORT},$${DECIDER_SERVICE_HOST}' < /etc/nginx/conf.d/nginx.conf.template > 
+              /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
+    environment:
+      - DECIDER_SERVICE_HOST=${DECIDER_SERVICE_HOST}
+      - NGINX_PORT=${NGINX_PORT}
+    ports:
+      - "${NGINX_PORT}:${NGINX_PORT}"
+    depends_on:
+      - client
+    networks:
+      - kx
+
+networks:
+  kx:
+    name: kx
+    driver: bridge
+    attachable: true
+    ipam:
+      config:
+        - subnet: 172.7.0.0/16
+          gateway: 172.7.0.1

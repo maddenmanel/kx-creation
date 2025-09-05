@@ -1,0 +1,18 @@
+server {
+    listen ${NGINX_PORT};
+    # client_max_body_size 1G;
+
+    # For Nginx and Flask to work properly, please use the below configuration.
+    location / {
+        # include proxy_params;
+        proxy_pass http://${KX_SERVICE_HOST};
+        proxy_redirect     off;
+        # Increase the timeout to solve this issue
+        proxy_read_timeout 300;
+
+        proxy_set_header   Host                 $http_host;
+        proxy_set_header   X-Real-IP            $remote_addr;
+        proxy_set_header   X-Forwarded-For      $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto    $scheme;
+    }
+}
