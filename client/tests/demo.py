@@ -1,6 +1,6 @@
-#!/usr/bin/env python3
 """
-KX智能内容创作系统 - 演示脚本
+Demo script for KX Intelligent Content Creation System
+Demonstrates the multi-agent workflow with AgentScope and Qwen
 """
 import requests
 import time
@@ -8,302 +8,258 @@ import json
 from typing import Dict, Any
 
 
-class KXCreationClient:
-    """KX智能内容创作系统客户端"""
-    
-    def __init__(self, base_url: str = "http://localhost"):
-        self.base_url = base_url.rstrip('/')
-        self.session = requests.Session()
-    
-    def health_check(self) -> bool:
-        """健康检查"""
-        try:
-            response = self.session.get(f"{self.base_url}/health")
-            return response.status_code == 200
-        except:
-            return False
-    
-    def crawl_page(self, url: str, extract_images: bool = True, extract_links: bool = True) -> Dict[str, Any]:
-        """爬取页面"""
-        response = self.session.post(f"{self.base_url}/api/crawl", json={
-            "url": url,
-            "extract_images": extract_images,
-            "extract_links": extract_links
-        })
-        return response.json()
-    
-    def url_to_article(
-        self,
-        url: str,
-        article_style: str = "professional",
-        target_audience: str = "general",
-        word_count: int = None
-    ) -> str:
-        """URL转文章（异步任务）"""
-        # 提交任务
-        response = self.session.post(f"{self.base_url}/api/url-to-article", json={
-            "url": url,
-            "article_style": article_style,
-            "target_audience": target_audience,
-            "word_count": word_count,
-            "extract_images": True,
-            "extract_links": True
-        })
-        
-        if response.status_code != 200:
-            raise Exception(f"任务提交失败: {response.text}")
-        
-        task_data = response.json()
-        task_id = task_data["task_id"]
-        
-        print(f"任务已提交，任务ID: {task_id}")
-        print("正在处理中...")
-        
-        # 轮询任务状态
-        while True:
-            status_response = self.session.get(f"{self.base_url}/api/task/{task_id}/status")
-            if status_response.status_code != 200:
-                raise Exception(f"获取任务状态失败: {status_response.text}")
-            
-            status = status_response.json()
-            print(f"任务状态: {status['status']}, 进度: {status['progress']}%, 消息: {status['message']}")
-            
-            if status["status"] == "completed":
-                # 获取结果
-                result_response = self.session.get(f"{self.base_url}/api/task/{task_id}/result")
-                if result_response.status_code != 200:
-                    raise Exception(f"获取任务结果失败: {result_response.text}")
-                
-                result = result_response.json()
-                if result["success"]:
-                    return result["data"]
-                else:
-                    raise Exception(f"任务失败: {result['message']}")
-                    
-            elif status["status"] == "failed":
-                raise Exception(f"任务失败: {status['message']}")
-            
-            time.sleep(2)
-    
-    def url_to_wechat(
-        self,
-        url: str,
-        article_style: str = "professional",
-        target_audience: str = "general",
-        author: str = None,
-        draft_only: bool = True
-    ) -> str:
-        """URL到微信发布（异步任务）"""
-        # 提交任务
-        response = self.session.post(f"{self.base_url}/api/url-to-wechat", json={
-            "url": url,
-            "article_style": article_style,
-            "target_audience": target_audience,
-            "author": author,
-            "draft_only": draft_only,
-            "extract_images": True,
-            "extract_links": True
-        })
-        
-        if response.status_code != 200:
-            raise Exception(f"任务提交失败: {response.text}")
-        
-        task_data = response.json()
-        task_id = task_data["task_id"]
-        
-        print(f"任务已提交，任务ID: {task_id}")
-        print("正在处理中...")
-        
-        # 轮询任务状态
-        while True:
-            status_response = self.session.get(f"{self.base_url}/api/task/{task_id}/status")
-            if status_response.status_code != 200:
-                raise Exception(f"获取任务状态失败: {status_response.text}")
-            
-            status = status_response.json()
-            print(f"任务状态: {status['status']}, 进度: {status['progress']}%, 消息: {status['message']}")
-            
-            if status["status"] == "completed":
-                # 获取结果
-                result_response = self.session.get(f"{self.base_url}/api/task/{task_id}/result")
-                if result_response.status_code != 200:
-                    raise Exception(f"获取任务结果失败: {result_response.text}")
-                
-                result = result_response.json()
-                if result["success"]:
-                    return result["data"]
-                else:
-                    raise Exception(f"任务失败: {result['message']}")
-                    
-            elif status["status"] == "failed":
-                raise Exception(f"任务失败: {status['message']}")
-            
-            time.sleep(2)
+# Configuration
+API_BASE_URL = "http://localhost:8000"  # Change to your API URL
+DEMO_URL = "https://en.wikipedia.org/wiki/Artificial_intelligence"  # Example URL
 
 
-def demo_crawl_page():
-    """演示页面爬取功能"""
-    print("\n" + "="*50)
-    print("🕷️ 演示页面爬取功能")
-    print("="*50)
-    
-    client = KXCreationClient()
-    
-    # 检查服务状态
-    if not client.health_check():
-        print("❌ 服务未启动，请先启动服务")
-        return
-    
-    # 爬取示例页面
-    test_url = "https://www.example.com"
-    print(f"正在爬取页面: {test_url}")
+def print_section(title: str):
+    """Print a formatted section header"""
+    print("\n" + "=" * 80)
+    print(f"  {title}")
+    print("=" * 80 + "\n")
+
+
+def print_json(data: Dict[Any, Any], indent: int = 2):
+    """Pretty print JSON data"""
+    print(json.dumps(data, indent=indent, ensure_ascii=False, default=str))
+
+
+def check_health():
+    """Check API health status"""
+    print_section("Health Check")
     
     try:
-        result = client.crawl_page(test_url)
-        if result.get("success"):
-            page_data = result["data"]["page_content"]
-            print(f"✅ 爬取成功!")
-            print(f"标题: {page_data['title']}")
-            print(f"内容长度: {len(page_data['content'])} 字符")
-            print(f"图片数量: {len(page_data['images'])}")
-            print(f"链接数量: {len(page_data['links'])}")
-        else:
-            print(f"❌ 爬取失败: {result.get('message')}")
+        response = requests.get(f"{API_BASE_URL}/health")
+        response.raise_for_status()
+        
+        data = response.json()
+        print("✅ API is healthy!")
+        print_json(data)
+        return True
+        
     except Exception as e:
-        print(f"❌ 爬取出错: {str(e)}")
+        print(f"❌ Health check failed: {str(e)}")
+        return False
 
 
 def demo_url_to_article():
-    """演示URL转文章功能"""
-    print("\n" + "="*50)
-    print("✍️ 演示URL转文章功能")
-    print("="*50)
-    
-    client = KXCreationClient()
-    
-    # 检查服务状态
-    if not client.health_check():
-        print("❌ 服务未启动，请先启动服务")
-        return
-    
-    # 转换示例文章
-    test_url = "https://www.example.com"
-    print(f"正在处理URL: {test_url}")
-    print("文章风格: professional")
-    print("目标受众: general")
+    """
+    Demo: URL to Article workflow
+    Crawls a URL, analyzes content, and creates an article
+    """
+    print_section("Demo 1: URL to Article Workflow")
     
     try:
-        result = client.url_to_article(
-            url=test_url,
-            article_style="professional",
-            target_audience="general"
+        # Submit task
+        print("📤 Submitting URL to Article task...")
+        payload = {
+            "url": DEMO_URL,
+            "article_style": "professional",
+            "target_audience": "general",
+            "word_count": 800,
+            "extract_images": True,
+            "extract_links": True
+        }
+        
+        print(f"Request payload:")
+        print_json(payload)
+        
+        response = requests.post(
+            f"{API_BASE_URL}/api/url-to-article",
+            json=payload
         )
+        response.raise_for_status()
         
-        article = result["article_result"]["article"]
-        print(f"\n✅ 文章创作完成!")
-        print(f"标题: {article['title']}")
-        print(f"字数: {article['word_count']}")
-        print(f"摘要: {article['summary']}")
-        print(f"标签: {', '.join(article['tags'])}")
-        print(f"\n内容预览:")
-        print(article['content'][:200] + "..." if len(article['content']) > 200 else article['content'])
+        task_data = response.json()
+        task_id = task_data["task_id"]
+        print(f"\n✅ Task created! Task ID: {task_id}")
         
-        # 显示处理时间
-        processing_time = result["processing_time"]
-        print(f"\n⏱️ 处理时间:")
-        print(f"爬取: {processing_time['crawl']:.2f}秒")
-        print(f"分析: {processing_time['analyze']:.2f}秒")
-        print(f"写作: {processing_time['write']:.2f}秒")
-        print(f"总计: {processing_time['total']:.2f}秒")
+        # Poll for completion
+        print("\n⏳ Waiting for task completion...")
+        max_attempts = 60  # 2 minutes with 2-second intervals
+        attempt = 0
+        
+        while attempt < max_attempts:
+            time.sleep(2)
+            attempt += 1
+            
+            status_response = requests.get(
+                f"{API_BASE_URL}/api/task/{task_id}/status"
+            )
+            status_response.raise_for_status()
+            status_data = status_response.json()
+            
+            status = status_data["status"]
+            message = status_data["message"]
+            progress = status_data.get("progress")
+            
+            print(f"Status: {status} - {message}")
+            if progress:
+                print(f"Progress: {progress}")
+            
+            if status == "completed":
+                print("\n✅ Task completed successfully!")
+                
+                # Get result
+                result_response = requests.get(
+                    f"{API_BASE_URL}/api/task/{task_id}/result"
+                )
+                result_response.raise_for_status()
+                result_data = result_response.json()
+                
+                # Display results
+                print_section("Results")
+                
+                if result_data.get("data"):
+                    data = result_data["data"]
+                    
+                    # Crawl result
+                    if "crawl_result" in data:
+                        print("📄 Crawl Result:")
+                        crawl = data["crawl_result"]
+                        print(f"  Title: {crawl.get('title')}")
+                        print(f"  Content length: {len(crawl.get('content', ''))} characters")
+                        print(f"  Images: {len(crawl.get('images', []))}")
+                        print(f"  Links: {len(crawl.get('links', []))}")
+                    
+                    # Analysis result
+                    if "analysis_result" in data:
+                        print("\n🔍 Analysis Result:")
+                        analysis = data["analysis_result"]
+                        print(f"  Summary: {analysis.get('summary', '')[:200]}...")
+                        print(f"  Key Points: {len(analysis.get('key_points', []))}")
+                        print(f"  Themes: {', '.join(analysis.get('themes', []))}")
+                    
+                    # Article result
+                    if "article_result" in data:
+                        print("\n✍️  Article Result:")
+                        article = data["article_result"]
+                        print(f"  Title: {article.get('title')}")
+                        print(f"  Word Count: {article.get('word_count')}")
+                        print(f"  Style: {article.get('style')}")
+                        print(f"\n  Content Preview:")
+                        print(f"  {article.get('content', '')[:500]}...")
+                
+                return True
+                
+            elif status == "failed":
+                print(f"\n❌ Task failed: {status_data.get('message')}")
+                if result_data.get("error"):
+                    print(f"Error: {result_data['error']}")
+                return False
+        
+        print("\n⏱️ Timeout: Task took too long")
+        return False
         
     except Exception as e:
-        print(f"❌ 处理出错: {str(e)}")
+        print(f"\n❌ Error: {str(e)}")
+        return False
 
 
-def demo_url_to_wechat():
-    """演示URL到微信发布功能"""
-    print("\n" + "="*50)
-    print("📱 演示URL到微信发布功能")
-    print("="*50)
-    
-    client = KXCreationClient()
-    
-    # 检查服务状态
-    if not client.health_check():
-        print("❌ 服务未启动，请先启动服务")
-        return
-    
-    # 发布示例文章
-    test_url = "https://www.example.com"
-    print(f"正在处理URL: {test_url}")
-    print("文章风格: professional")
-    print("目标受众: general")
-    print("模式: 仅创建草稿")
+def demo_step_by_step():
+    """
+    Demo: Step-by-step workflow
+    Demonstrates individual agent operations
+    """
+    print_section("Demo 2: Step-by-Step Workflow")
     
     try:
-        result = client.url_to_wechat(
-            url=test_url,
-            article_style="professional",
-            target_audience="general",
-            author="KX智能创作",
-            draft_only=True  # 仅创建草稿，不直接发布
+        # Step 1: Crawl
+        print("📡 Step 1: Crawling URL...")
+        crawl_response = requests.post(
+            f"{API_BASE_URL}/api/crawl",
+            json={
+                "url": DEMO_URL,
+                "extract_images": False,
+                "extract_links": False
+            }
         )
+        crawl_response.raise_for_status()
+        crawl_result = crawl_response.json()
+        print(f"✅ Crawled: {crawl_result.get('title')}")
         
-        print(f"\n✅ 完整流程处理完成!")
+        # Step 2: Analyze
+        print("\n🔍 Step 2: Analyzing content...")
+        analyze_response = requests.post(
+            f"{API_BASE_URL}/api/analyze",
+            json={
+                "title": crawl_result.get("title"),
+                "content": crawl_result.get("content")[:2000]  # Limit for demo
+            }
+        )
+        analyze_response.raise_for_status()
+        analysis_result = analyze_response.json()
+        print(f"✅ Analysis complete")
+        print(f"   Themes: {', '.join(analysis_result.get('themes', []))}")
         
-        # 显示文章信息
-        article_process = result["article_process"]
-        article = article_process["article_result"]["article"]
-        print(f"\n📝 文章信息:")
-        print(f"标题: {article['title']}")
-        print(f"字数: {article['word_count']}")
+        # Step 3: Write
+        print("\n✍️  Step 3: Writing article...")
+        write_response = requests.post(
+            f"{API_BASE_URL}/api/write",
+            json={
+                "analysis_result": analysis_result,
+                "article_style": "casual",
+                "target_audience": "general",
+                "word_count": 500
+            }
+        )
+        write_response.raise_for_status()
+        article_result = write_response.json()
+        print(f"✅ Article created: {article_result.get('title')}")
+        print(f"   Word count: {article_result.get('word_count')}")
         
-        # 显示发布信息
-        if result.get("publish_process"):
-            publish_result = result["publish_process"]["publish_result"]
-            print(f"\n📱 微信发布:")
-            print(f"状态: {publish_result['success']}")
-            print(f"消息: {publish_result['message']}")
-            if publish_result.get("media_id"):
-                print(f"草稿ID: {publish_result['media_id']}")
-        
-        # 显示总处理时间
-        total_time = result["total_processing_time"]
-        print(f"\n⏱️ 总处理时间: {total_time:.2f}秒")
+        return True
         
     except Exception as e:
-        print(f"❌ 处理出错: {str(e)}")
+        print(f"\n❌ Error: {str(e)}")
+        return False
 
 
 def main():
-    """主函数"""
-    print("🚀 KX智能内容创作系统 - 演示程序")
-    print("请确保已启动服务: ./deploy.sh")
-    print("API文档: http://localhost/docs")
+    """Run all demos"""
+    print("\n")
+    print("╔" + "=" * 78 + "╗")
+    print("║" + " " * 20 + "KX INTELLIGENT CONTENT CREATION SYSTEM" + " " * 20 + "║")
+    print("║" + " " * 25 + "Multi-Agent Demo Script" + " " * 30 + "║")
+    print("╚" + "=" * 78 + "╝")
     
-    while True:
-        print("\n" + "="*50)
-        print("请选择演示功能:")
-        print("1. 页面爬取演示")
-        print("2. URL转文章演示")
-        print("3. URL到微信发布演示")
-        print("4. 退出")
-        print("="*50)
-        
-        choice = input("请输入选项 (1-4): ").strip()
-        
-        if choice == "1":
-            demo_crawl_page()
-        elif choice == "2":
-            demo_url_to_article()
-        elif choice == "3":
-            demo_url_to_wechat()
-        elif choice == "4":
-            print("👋 再见!")
-            break
-        else:
-            print("❌ 无效选项，请重新选择")
+    # Check health
+    if not check_health():
+        print("\n❌ API is not available. Please make sure the server is running.")
+        print("   Start the server with: uvicorn client.main:app --reload")
+        return
+    
+    print("\n" + "=" * 80)
+    print("Choose a demo:")
+    print("  1. URL to Article (Complete workflow)")
+    print("  2. Step-by-step (Individual agents)")
+    print("  3. Run all demos")
+    print("  0. Exit")
+    print("=" * 80)
+    
+    choice = input("\nEnter your choice (0-3): ").strip()
+    
+    if choice == "1":
+        demo_url_to_article()
+    elif choice == "2":
+        demo_step_by_step()
+    elif choice == "3":
+        demo_url_to_article()
+        time.sleep(2)
+        demo_step_by_step()
+    elif choice == "0":
+        print("\n👋 Goodbye!")
+        return
+    else:
+        print("\n❌ Invalid choice")
+        return
+    
+    print("\n" + "=" * 80)
+    print("✨ Demo completed!")
+    print("=" * 80 + "\n")
 
 
 if __name__ == "__main__":
     main()
+

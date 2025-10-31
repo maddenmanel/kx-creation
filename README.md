@@ -1,249 +1,398 @@
-# KX智能内容创作系统
+# KX Intelligent Content Creation System
 
-基于AutoGen的智能内容创作系统，支持网页爬取、内容分析、文章创作和微信公众号发布。
+**AI-powered content creation system using AgentScope + Qwen (Qianwen)**
 
-## 🚀 功能特性
+Transform any web article into high-quality content with multi-agent AI collaboration.
 
-- **🕷️ 智能爬取**: 自动爬取网页内容，提取标题、正文、图片、链接等信息
-- **🔍 内容分析**: 使用AI分析内容结构，识别关键信息和主题
-- **✍️ 智能写作**: 基于分析结果创作高质量文章，支持多种风格
-- **📱 一键发布**: 直接发布到微信公众号，支持草稿和正式发布
-- **🤖 多Agent协作**: 基于AutoGen的多智能体协作架构
-- **⚡ 异步处理**: 支持异步任务处理，提升系统性能
+---
 
-## 📋 系统架构
+## 🚀 Features
 
-### Multi-Agent架构
+- **🕷️ Smart Web Scraping** - Extract content, images, links from any URL
+- **🔍 AI Content Analysis** - Analyze structure, themes, key points using Qwen
+- **✍️ Intelligent Writing** - Generate articles in multiple styles (professional/casual/news)
+- **📱 WeChat Publishing** - One-click publish to WeChat Official Accounts
+- **🤖 Multi-Agent System** - AgentScope framework with 4 specialized agents
+- **⚡ Async Processing** - FastAPI with background task management
+
+---
+
+## 📋 Architecture
 
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   CrawlerAgent  │───▶│  AnalyzerAgent  │───▶│   WriterAgent   │───▶│ PublisherAgent  │
-│   网页爬取      │    │   内容分析      │    │   文章创作      │    │   内容发布      │
-└─────────────────┘    └─────────────────┘    └─────────────────┘    └─────────────────┘
+User Request → FastAPI → Orchestrator → [Agents] → Response
+                              ↓
+                    CrawlerAgent  (Web Scraping)
+                         ↓
+                    AnalyzerAgent (AI Analysis via Qwen)
+                         ↓
+                    WriterAgent   (AI Writing via Qwen)
+                         ↓
+                    PublisherAgent (WeChat Publishing)
 ```
 
-### 技术栈
+**Tech Stack**: FastAPI + AgentScope 1.0.6 + Qwen + BeautifulSoup + wechatpy
 
-- **后端框架**: FastAPI + Uvicorn
-- **AI框架**: AutoGen + 千问大模型
-- **爬虫**: aiohttp + BeautifulSoup
-- **微信API**: wechatpy
-- **容器化**: Docker + Docker Compose
-- **反向代理**: Nginx
+---
 
-## 🛠️ 快速开始
+## 🛠️ Installation
 
-### 1. 环境准备
+### Prerequisites
+- Python 3.9+
+- Qwen API Key ([Get here](https://dashscope.console.aliyun.com/))
+
+### Quick Setup
 
 ```bash
-# 克隆项目
-git clone <your-repo-url>
+# 1. Clone repository
+git clone <your-repo>
 cd kx-creation
 
-# 复制环境变量文件
-cp client/.env.example client/.env
-```
+# 2. Create virtual environment
+python -m venv .venv
+.venv\Scripts\activate  # Windows
+# source .venv/bin/activate  # Linux/Mac
 
-### 2. 配置环境变量
+# 3. Install dependencies
+cd client
+pip install -r requirements.txt
 
-编辑 `client/.env` 文件：
-
-```bash
-# 千问API配置（必需）
-QWEN_API_KEY=your_qwen_api_key_here
-QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+# 4. Create .env file
+# Create client/.env with:
+QWEN_API_KEY=your_api_key_here
 QWEN_MODEL=qwen-turbo
-
-# 微信公众号配置（可选）
-WECHAT_APP_ID=your_wechat_app_id_here
-WECHAT_APP_SECRET=your_wechat_app_secret_here
+QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 ```
 
-### 3. 启动服务
+---
+
+## 🚀 Usage
+
+### Start Server
 
 ```bash
-# 使用Docker Compose启动
-./deploy.sh
+# From client directory
+cd client
+python main.py
 
-# 或者手动启动
-docker compose up --build -d
+# Server runs at http://localhost:8000
+# API Docs: http://localhost:8000/docs
 ```
 
-### 4. 访问服务
+### Test Health
 
-- **API文档**: http://localhost/docs
-- **健康检查**: http://localhost/health
+```bash
+curl http://localhost:8000/health
+```
 
-## 📚 API文档
+### Run Demo
 
-### 核心接口
+```bash
+cd client
+python tests/demo.py
+```
 
-#### 1. URL到文章 (推荐)
+---
 
-```http
+## 📚 API Endpoints
+
+### Core Workflows
+
+**1. URL to Article** (Complete pipeline)1
+```bash
 POST /api/url-to-article
-Content-Type: application/json
-
 {
   "url": "https://example.com/article",
-  "article_style": "professional",
-  "target_audience": "general",
-  "word_count": 1000,
-  "extract_images": true,
-  "extract_links": true
+  "article_style": "professional",  # or "casual", "news"
+  "target_audience": "general",     # or "technical", "business"
+  "word_count": 1000
 }
 ```
+Returns: `task_id`
 
-#### 2. URL到微信发布 (一键发布)
-
-```http
+**2. URL to WeChat** (One-click publishing)
+```bash
 POST /api/url-to-wechat
-Content-Type: application/json
-
 {
   "url": "https://example.com/article",
   "article_style": "professional",
-  "target_audience": "general",
-  "author": "KX智能创作",
+  "author": "Your Name",
   "draft_only": false
 }
 ```
 
-#### 3. 任务状态查询
-
-```http
+**3. Check Task Status**
+```bash
 GET /api/task/{task_id}/status
-```
-
-#### 4. 任务结果获取
-
-```http
 GET /api/task/{task_id}/result
 ```
 
-### 分步接口
+### Step-by-Step
 
-如需更精细的控制，可使用以下分步接口：
+- `POST /api/crawl` - Crawl URL
+- `POST /api/analyze` - Analyze content
+- `POST /api/write` - Write article
+- `POST /api/publish` - Publish to WeChat
 
-- `POST /api/crawl` - 网页爬取
-- `POST /api/analyze` - 内容分析
-- `POST /api/write` - 文章创作
-- `POST /api/publish` - 微信发布
+---
 
-## 🔧 配置说明
+## 💡 Example Usage
 
-### 文章风格 (article_style)
-
-- `professional` - 专业风格（默认）
-- `casual` - 轻松风格
-- `news` - 新闻风格
-
-### 目标受众 (target_audience)
-
-- `general` - 普通读者（默认）
-- `technical` - 技术人员
-- `business` - 商务人士
-
-## 📁 项目结构
-
-```
-kx-creation/
-├── client/                 # 主应用
-│   ├── agents/            # 多Agent模块
-│   │   ├── base_agent.py
-│   │   ├── crawler_agent.py
-│   │   ├── analyzer_agent.py
-│   │   ├── writer_agent.py
-│   │   ├── publisher_agent.py
-│   │   └── orchestrator.py
-│   ├── services/          # 服务层
-│   │   ├── crawler.py
-│   │   └── wechat.py
-│   ├── models/            # 数据模型
-│   │   └── schemas.py
-│   ├── config/            # 配置管理
-│   │   └── config.py
-│   ├── main.py           # FastAPI应用
-│   ├── requirements.txt  # Python依赖
-│   └── Dockerfile       # 应用镜像
-├── nginx/                # Nginx配置
-├── docker-compose.yml   # 服务编排
-└── deploy.sh           # 部署脚本
-```
-
-## 🔍 使用示例
-
-### Python客户端示例
+### Python Client
 
 ```python
 import requests
 import time
 
-# 1. 提交URL处理任务
-response = requests.post("http://localhost/api/url-to-article", json={
-    "url": "https://example.com/article",
-    "article_style": "professional",
-    "target_audience": "general"
-})
-
+# Submit task
+response = requests.post(
+    "http://localhost:8000/api/url-to-article",
+    json={
+        "url": "https://en.wikipedia.org/wiki/Artificial_intelligence",
+        "article_style": "professional",
+        "word_count": 800
+    }
+)
 task_id = response.json()["task_id"]
 
-# 2. 轮询任务状态
+# Poll for completion
 while True:
-    status_response = requests.get(f"http://localhost/api/task/{task_id}/status")
-    status = status_response.json()
-    
-    if status["status"] == "completed":
-        # 3. 获取结果
-        result_response = requests.get(f"http://localhost/api/task/{task_id}/result")
-        article = result_response.json()["data"]["article_result"]["article"]
-        print(f"文章标题: {article['title']}")
-        print(f"文章内容: {article['content']}")
+    status = requests.get(f"http://localhost:8000/api/task/{task_id}/status")
+    if status.json()["status"] == "completed":
+        result = requests.get(f"http://localhost:8000/api/task/{task_id}/result")
+        article = result.json()["data"]["article_result"]
+        print(f"Title: {article['title']}")
+        print(f"Content: {article['content'][:500]}...")
         break
-    elif status["status"] == "failed":
-        print(f"任务失败: {status['message']}")
-        break
-    
     time.sleep(2)
 ```
 
-### curl示例
+---
 
-```bash
-# 提交任务
-curl -X POST "http://localhost/api/url-to-article" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "https://example.com/article",
-    "article_style": "professional"
-  }'
+## 📁 Project Structure
 
-# 查询状态
-curl "http://localhost/api/task/{task_id}/status"
-
-# 获取结果
-curl "http://localhost/api/task/{task_id}/result"
+```
+kx-creation/
+├── client/
+│   ├── agents/              # Multi-agent system
+│   │   ├── base_agent.py    # Base agent class
+│   │   ├── crawler_agent.py # Web scraping
+│   │   ├── analyzer_agent.py# Content analysis
+│   │   ├── writer_agent.py  # Article generation
+│   │   ├── publisher_agent.py# Publishing
+│   │   └── orchestrator.py  # Workflow coordinator
+│   ├── services/            # Service layer
+│   │   ├── crawler.py       # Web crawling
+│   │   └── wechat.py        # WeChat API
+│   ├── models/              # Data models
+│   │   └── schemas.py       # Pydantic models
+│   ├── config/              # Configuration
+│   │   └── config.py        # Settings
+│   ├── tests/               # Tests
+│   │   └── demo.py          # Demo script
+│   ├── main.py              # FastAPI app
+│   ├── requirements.txt     # Dependencies
+│   └── .env                 # Config (create this)
+├── docker-compose.yml       # Docker setup
+└── README.md                # This file
 ```
 
-## 🚨 注意事项
+---
 
-1. **API密钥安全**: 请妥善保管千问API密钥和微信公众号密钥
-2. **网站爬取**: 请遵守目标网站的robots.txt规则
-3. **内容版权**: 请确保有权使用和转载爬取的内容
-4. **微信限制**: 微信公众号发布有频率限制，请合理使用
-5. **资源消耗**: AI分析和创作会消耗较多计算资源
+## ⚙️ Configuration
 
-## 📈 性能优化
+### Environment Variables
 
-- 使用异步处理提升并发能力
-- 合理设置超时时间避免长时间等待
-- 监控系统资源使用情况
-- 定期清理任务状态缓存
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `QWEN_API_KEY` | ✅ Yes | - | Your Qwen API key |
+| `QWEN_MODEL` | No | qwen-turbo | Model: qwen-turbo/plus/max |
+| `QWEN_BASE_URL` | No | dashscope URL | API endpoint |
+| `WECHAT_APP_ID` | No | - | WeChat App ID |
+| `WECHAT_APP_SECRET` | No | - | WeChat App Secret |
+| `HOST` | No | 0.0.0.0 | Server host |
+| `PORT` | No | 8000 | Server port |
 
-## 🤝 贡献指南
+### Article Styles
+- **professional** - Formal, authoritative, data-driven
+- **casual** - Friendly, conversational, accessible
+- **news** - Objective, factual, inverted pyramid
 
-欢迎提交Issue和Pull Request来改进这个项目！
+### Target Audiences
+- **general** - General public
+- **technical** - Technical professionals
+- **business** - Business professionals
 
-## 📄 许可证
+---
 
-本项目基于MIT许可证开源。
+## 🔧 Troubleshooting
+
+### "Module not found" error
+```bash
+pip install -r requirements.txt
+```
+
+### Port already in use
+```bash
+# Windows
+netstat -ano | findstr :8000
+taskkill /PID <PID> /F
+
+# Linux/Mac
+lsof -i :8000
+kill -9 <PID>
+```
+
+### Server won't start
+1. Check virtual environment is activated
+2. Verify `.env` file exists in `client/` directory
+3. Confirm Qwen API key is valid
+4. Check Python version (3.9+)
+
+---
+
+## 🚀 Docker Deployment (Optional)
+
+```bash
+# Build and run
+docker-compose up --build -d
+
+# View logs
+docker-compose logs -f
+
+# Stop
+docker-compose down
+```
+
+---
+
+## 📊 Dependencies
+
+**Core**:
+- fastapi==0.116.1
+- uvicorn==0.38.0
+- agentscope==1.0.6
+- openai>=1.0.0
+
+**Scraping**:
+- requests==2.31.0
+- beautifulsoup4==4.12.3
+- lxml==5.3.0
+
+**WeChat**:
+- wechatpy==1.8.18
+
+**Utilities**:
+- pydantic-settings==2.5.2
+- loguru==0.7.2
+- aiohttp==3.10.5
+
+See `client/requirements.txt` for complete list.
+
+---
+
+## 🎯 Key Features Explained
+
+### Multi-Agent Architecture (AgentScope)
+- **CrawlerAgent**: Intelligent web scraping with content extraction
+- **AnalyzerAgent**: AI-powered content analysis using Qwen LLM
+- **WriterAgent**: Article generation with style adaptation using Qwen LLM
+- **PublisherAgent**: Multi-platform publishing (WeChat)
+
+### Asynchronous Processing
+- Background task execution
+- Non-blocking API endpoints
+- Real-time status tracking
+- Result caching
+
+### Qwen Integration
+- OpenAI-compatible API
+- Multiple model options (turbo/plus/max)
+- Configurable temperature and tokens
+- Error handling and retries
+
+---
+
+## 📝 API Response Example
+
+```json
+{
+  "success": true,
+  "crawl_result": {
+    "title": "Artificial Intelligence",
+    "content": "AI is...",
+    "images": ["url1", "url2"],
+    "links": ["link1", "link2"]
+  },
+  "analysis_result": {
+    "summary": "This article discusses...",
+    "key_points": ["Point 1", "Point 2"],
+    "themes": ["AI", "Technology"],
+    "sentiment": "neutral"
+  },
+  "article_result": {
+    "title": "Understanding Artificial Intelligence",
+    "content": "Full article content...",
+    "word_count": 1000,
+    "style": "professional",
+    "tags": ["AI", "Technology", "Innovation"]
+  }
+}
+```
+
+---
+
+## ⚠️ Important Notes
+
+1. **API Key Security**: Keep your Qwen API key secure in `.env` file
+2. **Respect robots.txt**: Follow website scraping policies
+3. **Content Rights**: Ensure you have rights to use scraped content
+4. **WeChat Limits**: Official Account publishing has rate limits
+5. **API Costs**: Qwen API usage incurs costs based on tokens
+
+---
+
+## 🤝 Contributing
+
+Contributions welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request
+
+---
+
+## 📄 License
+
+MIT License - see LICENSE file for details
+
+---
+
+## 📞 Support
+
+- **Issues**: Create an issue on GitHub
+- **Documentation**: This README
+- **API Docs**: http://localhost:8000/docs (when running)
+
+---
+
+## 🎉 Quick Test
+
+```bash
+# 1. Start server
+cd client && python main.py
+
+# 2. In another terminal, test:
+curl -X POST http://localhost:8000/api/url-to-article \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://en.wikipedia.org/wiki/Python_(programming_language)", "article_style": "casual", "word_count": 500}'
+
+# 3. Check result (use task_id from response):
+curl http://localhost:8000/api/task/{task_id}/result
+```
+
+---
+
+**Built with ❤️ using AgentScope + Qwen**
+
+**Status**: ✅ Production Ready | Version: 1.0.0

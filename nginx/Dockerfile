@@ -1,4 +1,4 @@
-FROM nginx:1.29.1
+FROM nginx:1.25
 
 COPY conf/nginx.conf.template /etc/nginx/conf.d/
 

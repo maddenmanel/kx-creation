@@ -1,45 +1,79 @@
 """
-KX智能内容创作系统 - FastAPI主应用
+KX Intelligent Content Creation System
+FastAPI application with AgentScope multi-agent architecture
 """
-import uuid
 import asyncio
+import uuid
+from datetime import datetime
 from typing import Dict, Any, Optional
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, HttpUrl
 from loguru import logger
 
 from config.config import settings
 from models.schemas import (
-    CrawlRequest, ArticleRequest, WechatPublishRequest,
-    TaskStatus, AgentResponse
+    CrawlRequest, AnalyzeRequest, WriteRequest, PublishRequest,
+    UrlToArticleRequest, UrlToWeChatRequest,
+    TaskResponse, TaskStatusResponse, TaskResultResponse,
+    HealthResponse, ErrorResponse,
+    TaskStatus
 )
-from agents.orchestrator import AgentOrchestrator
+from agents.orchestrator import init_orchestrator, get_orchestrator
 
 
-# 全局编排器实例
-orchestrator = AgentOrchestrator()
+# Task storage (in production, use Redis or a database)
+tasks: Dict[str, Dict[str, Any]] = {}
+
+
+def create_qwen_model_config() -> Dict[str, Any]:
+    """Create Qwen model configuration for AgentScope"""
+    return {
+        "config_name": "qwen_config",
+        "model_type": "openai_chat",  # AgentScope uses OpenAI-compatible API
+        "model_name": settings.QWEN_MODEL,
+        "api_key": settings.QWEN_API_KEY,
+        "base_url": settings.QWEN_BASE_URL,
+        "temperature": 0.7,
+        "max_tokens": 4000,
+    }
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期管理"""
-    logger.info("🚀 KX智能内容创作系统启动")
+    """Application lifespan manager"""
+    # Startup
+    logger.info("Starting KX Intelligent Content Creation System...")
+    logger.info(f"Version: {settings.APP_VERSION}")
+    
+    # Initialize AgentScope with Qwen configuration
+    try:
+        model_config = create_qwen_model_config()
+        init_orchestrator(model_config)
+        logger.info("AgentScope orchestrator initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize orchestrator: {str(e)}")
+        raise
+    
+    logger.info("System ready!")
+    
     yield
-    logger.info("📴 KX智能内容创作系统关闭")
+    
+    # Shutdown
+    logger.info("Shutting down KX Intelligent Content Creation System...")
 
 
-# 创建FastAPI应用
+# Create FastAPI app
 app = FastAPI(
-    title=settings.app_name,
-    version=settings.app_version,
-    description="基于AutoGen的智能内容创作系统，支持网页爬取、内容分析、文章创作和微信公众号发布",
+    title=settings.APP_NAME,
+    version=settings.APP_VERSION,
+    description="Intelligent content creation system with multi-agent architecture using AgentScope and Qwen",
     lifespan=lifespan
 )
 
-# 添加CORS中间件
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -49,312 +83,380 @@ app.add_middleware(
 )
 
 
-# API请求模型
-class UrlToArticleRequest(BaseModel):
-    """URL到文章请求模型"""
-    url: HttpUrl
-    article_style: str = "professional"
-    target_audience: str = "general"
-    word_count: Optional[int] = None
-    extract_images: bool = True
-    extract_links: bool = True
-
-
-class UrlToWechatRequest(BaseModel):
-    """URL到微信发布请求模型"""
-    url: HttpUrl
-    article_style: str = "professional"
-    target_audience: str = "general"
-    word_count: Optional[int] = None
-    extract_images: bool = True
-    extract_links: bool = True
-    # 微信发布参数
-    thumb_media_id: Optional[str] = None
-    author: Optional[str] = None
-    digest: Optional[str] = None
-    show_cover_pic: bool = True
-    need_open_comment: bool = False
-    only_fans_can_comment: bool = False
-    draft_only: bool = False
-
-
-class TaskResponse(BaseModel):
-    """任务响应模型"""
-    task_id: str
-    message: str
-    status_url: str
-
-
-@app.get("/")
-async def root():
-    """根路径"""
-    return {
-        "message": f"欢迎使用{settings.app_name}",
-        "version": settings.app_version,
-        "status": "running"
-    }
-
-
-@app.get("/health")
-async def health_check():
-    """健康检查"""
-    return {"status": "healthy", "version": settings.app_version}
-
-
-@app.post("/api/crawl", response_model=Dict[str, Any])
-async def crawl_page(request: CrawlRequest):
-    """
-    爬取单个网页
-    """
-    try:
-        result = await orchestrator.crawler_agent.process({
-            "url": str(request.url),
-            "extract_images": request.extract_images,
-            "extract_links": request.extract_links
-        })
-        
-        if result.success:
-            return {"success": True, "data": result.data, "message": result.message}
-        else:
-            raise HTTPException(status_code=400, detail=result.message)
-            
-    except Exception as e:
-        logger.error(f"爬取失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"爬取失败: {str(e)}")
-
-
-@app.post("/api/analyze", response_model=Dict[str, Any])
-async def analyze_content(page_content: Dict[str, Any]):
-    """
-    分析页面内容
-    """
-    try:
-        result = await orchestrator.analyzer_agent.process({
-            "page_content": page_content
-        })
-        
-        if result.success:
-            return {"success": True, "data": result.data, "message": result.message}
-        else:
-            raise HTTPException(status_code=400, detail=result.message)
-            
-    except Exception as e:
-        logger.error(f"分析失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}")
-
-
-@app.post("/api/write", response_model=Dict[str, Any])
-async def write_article(
-    analysis: Dict[str, Any],
-    original_content: Dict[str, Any],
-    article_style: str = "professional",
-    target_audience: str = "general",
-    word_count: Optional[int] = None
-):
-    """
-    创作文章
-    """
-    try:
-        result = await orchestrator.writer_agent.process({
-            "analysis": analysis,
-            "original_content": original_content,
-            "article_style": article_style,
-            "target_audience": target_audience,
-            "word_count": word_count
-        })
-        
-        if result.success:
-            return {"success": True, "data": result.data, "message": result.message}
-        else:
-            raise HTTPException(status_code=400, detail=result.message)
-            
-    except Exception as e:
-        logger.error(f"创作失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"创作失败: {str(e)}")
-
-
-@app.post("/api/publish", response_model=Dict[str, Any])
-async def publish_to_wechat(request: WechatPublishRequest):
-    """
-    发布到微信公众号
-    """
-    try:
-        result = await orchestrator.publisher_agent.process({
-            "article": request.article.dict(),
-            "thumb_media_id": request.thumb_media_id,
-            "author": request.author,
-            "digest": request.digest,
-            "show_cover_pic": request.show_cover_pic,
-            "need_open_comment": request.need_open_comment,
-            "only_fans_can_comment": request.only_fans_can_comment
-        })
-        
-        if result.success:
-            return {"success": True, "data": result.data, "message": result.message}
-        else:
-            raise HTTPException(status_code=400, detail=result.message)
-            
-    except Exception as e:
-        logger.error(f"发布失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"发布失败: {str(e)}")
-
-
-@app.post("/api/url-to-article", response_model=TaskResponse)
-async def url_to_article(request: UrlToArticleRequest, background_tasks: BackgroundTasks):
-    """
-    URL到文章的完整流程（异步）
-    """
+# Helper functions
+def create_task(task_type: str) -> str:
+    """Create a new task and return task ID"""
     task_id = str(uuid.uuid4())
-    
-    # 添加后台任务
-    background_tasks.add_task(
-        run_url_to_article_task,
-        task_id,
-        str(request.url),
-        {
-            "article_style": request.article_style,
-            "target_audience": request.target_audience,
-            "word_count": request.word_count,
-            "extract_images": request.extract_images,
-            "extract_links": request.extract_links
-        }
-    )
-    
-    return TaskResponse(
-        task_id=task_id,
-        message="任务已提交，正在处理中...",
-        status_url=f"/api/task/{task_id}/status"
-    )
-
-
-@app.post("/api/url-to-wechat", response_model=TaskResponse)
-async def url_to_wechat(request: UrlToWechatRequest, background_tasks: BackgroundTasks):
-    """
-    URL到微信公众号发布的完整流程（异步）
-    """
-    task_id = str(uuid.uuid4())
-    
-    # 准备参数
-    article_params = {
-        "article_style": request.article_style,
-        "target_audience": request.target_audience,
-        "word_count": request.word_count,
-        "extract_images": request.extract_images,
-        "extract_links": request.extract_links
+    tasks[task_id] = {
+        "task_id": task_id,
+        "type": task_type,
+        "status": TaskStatus.PENDING,
+        "message": "Task created and queued",
+        "progress": None,
+        "data": None,
+        "error": None,
+        "created_at": datetime.now(),
+        "updated_at": datetime.now(),
+        "completed_at": None
     }
-    
-    publish_params = {
-        "thumb_media_id": request.thumb_media_id,
-        "author": request.author,
-        "digest": request.digest,
-        "show_cover_pic": request.show_cover_pic,
-        "need_open_comment": request.need_open_comment,
-        "only_fans_can_comment": request.only_fans_can_comment,
-        "draft_only": request.draft_only
-    }
-    
-    # 添加后台任务
-    background_tasks.add_task(
-        run_url_to_wechat_task,
-        task_id,
-        str(request.url),
-        article_params,
-        publish_params
-    )
-    
-    return TaskResponse(
-        task_id=task_id,
-        message="任务已提交，正在处理中...",
-        status_url=f"/api/task/{task_id}/status"
-    )
+    return task_id
 
 
-@app.get("/api/task/{task_id}/status")
-async def get_task_status(task_id: str):
-    """
-    获取任务状态
-    """
-    task_status = orchestrator.get_task_status(task_id)
-    
-    if not task_status:
-        raise HTTPException(status_code=404, detail="任务不存在")
-    
-    return task_status.dict()
+def update_task(task_id: str, **kwargs):
+    """Update task information"""
+    if task_id in tasks:
+        tasks[task_id].update(kwargs)
+        tasks[task_id]["updated_at"] = datetime.now()
 
 
-@app.get("/api/task/{task_id}/result")
-async def get_task_result(task_id: str):
-    """
-    获取任务结果
-    """
-    task_status = orchestrator.get_task_status(task_id)
-    
-    if not task_status:
-        raise HTTPException(status_code=404, detail="任务不存在")
-    
-    if task_status.status == "completed":
-        return {
-            "success": True,
-            "data": task_status.result,
-            "message": "任务完成"
-        }
-    elif task_status.status == "failed":
-        return {
-            "success": False,
-            "message": task_status.message,
-            "data": None
-        }
-    else:
-        return {
-            "success": False,
-            "message": "任务尚未完成",
-            "status": task_status.status,
-            "progress": task_status.progress
-        }
-
-
-# 后台任务函数
-async def run_url_to_article_task(task_id: str, url: str, params: Dict[str, Any]):
-    """运行URL到文章的后台任务"""
+async def process_url_to_article_task(task_id: str, request: UrlToArticleRequest):
+    """Background task processor for URL to Article workflow"""
     try:
-        result = await orchestrator.process_url_to_article(task_id, url, **params)
-        
-        # 更新任务结果
-        task_status = orchestrator.get_task_status(task_id)
-        if task_status:
-            task_status.result = result
-            
-    except Exception as e:
-        logger.error(f"后台任务失败 [{task_id}]: {str(e)}")
-
-
-async def run_url_to_wechat_task(
-    task_id: str,
-    url: str,
-    article_params: Dict[str, Any],
-    publish_params: Dict[str, Any]
-):
-    """运行URL到微信发布的后台任务"""
-    try:
-        result = await orchestrator.process_url_to_wechat(
-            task_id, url, article_params, publish_params
+        update_task(
+            task_id,
+            status=TaskStatus.PROCESSING,
+            message="Processing URL to article workflow",
+            progress="Step 1/3: Crawling URL"
         )
         
-        # 更新任务结果
-        task_status = orchestrator.get_task_status(task_id)
-        if task_status:
-            task_status.result = result
+        orchestrator = get_orchestrator()
+        
+        # Run workflow
+        result = orchestrator.url_to_article(
+            url=str(request.url),
+            article_style=request.article_style,
+            target_audience=request.target_audience,
+            word_count=request.word_count,
+            extract_images=request.extract_images,
+            extract_links=request.extract_links
+        )
+        
+        if result.get("success"):
+            update_task(
+                task_id,
+                status=TaskStatus.COMPLETED,
+                message="Article created successfully",
+                data=result,
+                completed_at=datetime.now()
+            )
+        else:
+            update_task(
+                task_id,
+                status=TaskStatus.FAILED,
+                message="Failed to create article",
+                error=result.get("error", "Unknown error"),
+                completed_at=datetime.now()
+            )
             
     except Exception as e:
-        logger.error(f"后台任务失败 [{task_id}]: {str(e)}")
+        logger.error(f"Error processing task {task_id}: {str(e)}")
+        update_task(
+            task_id,
+            status=TaskStatus.FAILED,
+            message="Task processing error",
+            error=str(e),
+            completed_at=datetime.now()
+        )
+
+
+async def process_url_to_wechat_task(task_id: str, request: UrlToWeChatRequest):
+    """Background task processor for URL to WeChat workflow"""
+    try:
+        update_task(
+            task_id,
+            status=TaskStatus.PROCESSING,
+            message="Processing URL to WeChat workflow",
+            progress="Step 1/4: Crawling URL"
+        )
+        
+        orchestrator = get_orchestrator()
+        
+        # Run workflow
+        result = orchestrator.url_to_wechat(
+            url=str(request.url),
+            article_style=request.article_style,
+            target_audience=request.target_audience,
+            author=request.author,
+            draft_only=request.draft_only
+        )
+        
+        if result.get("success"):
+            update_task(
+                task_id,
+                status=TaskStatus.COMPLETED,
+                message="Article created and published successfully" if result.get("publish_success") else "Article created, but publishing failed",
+                data=result,
+                completed_at=datetime.now()
+            )
+        else:
+            update_task(
+                task_id,
+                status=TaskStatus.FAILED,
+                message="Failed to process workflow",
+                error=result.get("error", "Unknown error"),
+                completed_at=datetime.now()
+            )
+            
+    except Exception as e:
+        logger.error(f"Error processing task {task_id}: {str(e)}")
+        update_task(
+            task_id,
+            status=TaskStatus.FAILED,
+            message="Task processing error",
+            error=str(e),
+            completed_at=datetime.now()
+        )
+
+
+# API Endpoints
+
+@app.get("/", tags=["Root"])
+async def root():
+    """Root endpoint"""
+    return {
+        "name": settings.APP_NAME,
+        "version": settings.APP_VERSION,
+        "status": "running",
+        "docs": "/docs"
+    }
+
+
+@app.get("/health", response_model=HealthResponse, tags=["Health"])
+async def health_check():
+    """Health check endpoint"""
+    return HealthResponse(
+        status="healthy",
+        version=settings.APP_VERSION,
+        timestamp=datetime.now()
+    )
+
+
+@app.post("/api/url-to-article", response_model=TaskResponse, tags=["Core Workflows"])
+async def url_to_article(request: UrlToArticleRequest, background_tasks: BackgroundTasks):
+    """
+    Convert URL to article (Recommended workflow)
+    
+    This endpoint crawls a URL, analyzes the content, and creates a new article.
+    Returns a task ID for tracking progress.
+    """
+    try:
+        task_id = create_task("url_to_article")
+        background_tasks.add_task(process_url_to_article_task, task_id, request)
+        
+        return TaskResponse(
+            task_id=task_id,
+            status=TaskStatus.PENDING,
+            message="Task created and processing",
+            created_at=datetime.now()
+        )
+    except Exception as e:
+        logger.error(f"Error creating url_to_article task: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/url-to-wechat", response_model=TaskResponse, tags=["Core Workflows"])
+async def url_to_wechat(request: UrlToWeChatRequest, background_tasks: BackgroundTasks):
+    """
+    Convert URL to WeChat article (One-click publishing)
+    
+    This endpoint crawls a URL, analyzes the content, creates a new article,
+    and publishes it to WeChat Official Account.
+    Returns a task ID for tracking progress.
+    """
+    try:
+        task_id = create_task("url_to_wechat")
+        background_tasks.add_task(process_url_to_wechat_task, task_id, request)
+        
+        return TaskResponse(
+            task_id=task_id,
+            status=TaskStatus.PENDING,
+            message="Task created and processing",
+            created_at=datetime.now()
+        )
+    except Exception as e:
+        logger.error(f"Error creating url_to_wechat task: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/task/{task_id}/status", response_model=TaskStatusResponse, tags=["Task Management"])
+async def get_task_status(task_id: str):
+    """
+    Get task status
+    
+    Returns the current status of a task.
+    """
+    if task_id not in tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    task = tasks[task_id]
+    
+    return TaskStatusResponse(
+        task_id=task_id,
+        status=task["status"],
+        message=task["message"],
+        progress=task.get("progress"),
+        created_at=task["created_at"],
+        updated_at=task["updated_at"]
+    )
+
+
+@app.get("/api/task/{task_id}/result", response_model=TaskResultResponse, tags=["Task Management"])
+async def get_task_result(task_id: str):
+    """
+    Get task result
+    
+    Returns the result of a completed task.
+    """
+    if task_id not in tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    task = tasks[task_id]
+    
+    return TaskResultResponse(
+        task_id=task_id,
+        status=task["status"],
+        data=task.get("data"),
+        error=task.get("error"),
+        created_at=task["created_at"],
+        completed_at=task.get("completed_at")
+    )
+
+
+# Step-by-step endpoints for more granular control
+
+@app.post("/api/crawl", tags=["Step-by-step Operations"])
+async def crawl(request: CrawlRequest):
+    """
+    Step 1: Crawl a URL
+    
+    Crawls a URL and extracts content, images, and links.
+    """
+    try:
+        orchestrator = get_orchestrator()
+        result = orchestrator.crawl_url(
+            url=str(request.url),
+            extract_images=request.extract_images,
+            extract_links=request.extract_links
+        )
+        
+        if result.get("error"):
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error in crawl endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/analyze", tags=["Step-by-step Operations"])
+async def analyze(request: AnalyzeRequest):
+    """
+    Step 2: Analyze content
+    
+    Analyzes content and extracts key information, themes, and recommendations.
+    """
+    try:
+        orchestrator = get_orchestrator()
+        result = orchestrator.analyze_content(
+            title=request.title,
+            content=request.content,
+            images=request.images,
+            links=request.links
+        )
+        
+        if result.get("error"):
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error in analyze endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/write", tags=["Step-by-step Operations"])
+async def write(request: WriteRequest):
+    """
+    Step 3: Write article
+    
+    Creates an article based on analysis results.
+    """
+    try:
+        orchestrator = get_orchestrator()
+        result = orchestrator.write_article(
+            analysis_result=request.analysis_result,
+            article_style=request.article_style,
+            target_audience=request.target_audience,
+            word_count=request.word_count
+        )
+        
+        if result.get("error"):
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error in write endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/publish", tags=["Step-by-step Operations"])
+async def publish(request: PublishRequest):
+    """
+    Step 4: Publish article
+    
+    Publishes an article to WeChat Official Account or other platforms.
+    """
+    try:
+        orchestrator = get_orchestrator()
+        result = orchestrator.publish_article(
+            article=request.article,
+            author=request.author,
+            draft_only=request.draft_only
+        )
+        
+        if not result.get("success"):
+            logger.warning(f"Publishing failed: {result.get('message')}")
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error in publish endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Exception handlers
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc):
+    """Handle HTTP exceptions"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=ErrorResponse(
+            error=exc.__class__.__name__,
+            message=exc.detail,
+            timestamp=datetime.now()
+        ).model_dump()
+    )
+
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request, exc):
+    """Handle general exceptions"""
+    logger.error(f"Unhandled exception: {str(exc)}")
+    return JSONResponse(
+        status_code=500,
+        content=ErrorResponse(
+            error=exc.__class__.__name__,
+            message="Internal server error",
+            details={"detail": str(exc)},
+            timestamp=datetime.now()
+        ).model_dump()
+    )
 
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
         "main:app",
-        host=settings.host,
-        port=settings.port,
-        reload=settings.debug,
-        log_level="info"
+        host=settings.HOST,
+        port=settings.PORT,
+        reload=settings.DEBUG
     )
+

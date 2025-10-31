@@ -1,42 +1,64 @@
 """
-配置管理
+Configuration module for KX Intelligent Content Creation System
+Handles environment variables and application settings
 """
 import os
+from typing import Optional
 from pydantic_settings import BaseSettings
+from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    """应用配置"""
+    """Application Settings"""
     
-    # 应用配置
-    app_name: str = "KX智能内容创作系统"
-    app_version: str = "1.0.0"
-    debug: bool = True
+    # Application Configuration
+    APP_NAME: str = "KX Intelligent Content Creation System"
+    APP_VERSION: str = "1.0.0"
+    DEBUG: bool = False
     
-    # 服务配置
-    host: str = "0.0.0.0"
-    port: int = 8000
+    # Server Configuration
+    HOST: str = "0.0.0.0"
+    PORT: int = 8000
     
-    # 千问API配置
-    qwen_api_key: str = os.environ.get('QWEN_API_KEY', '')
-    qwen_base_url: str = os.environ.get('QWEN_BASE_URL', '')
-    qwen_model: str = os.environ.get('QWEN_MODEL', 'qwen-turbo')
+    # Qwen API Configuration (Required)
+    QWEN_API_KEY: str
+    QWEN_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    QWEN_MODEL: str = "qwen-turbo"
     
-    # 微信公众号配置
-    wechat_app_id: str = os.environ.get('WECHAT_APP_ID', '')
-    wechat_app_secret: str = os.environ.get('WECHAT_APP_SECRET', '')
+    # AgentScope Configuration
+    AGENTSCOPE_TIMEOUT: int = 300
+    AGENTSCOPE_MAX_RETRIES: int = 3
     
-    # 爬虫配置
-    crawl_timeout: int = 30
-    max_content_length: int = 1000000  # 1MB
-    user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    # WeChat Official Account Configuration (Optional)
+    WECHAT_APP_ID: Optional[str] = None
+    WECHAT_APP_SECRET: Optional[str] = None
     
-    # AutoGen配置
-    autogen_cache_seed: int = 42
-    autogen_timeout: int = 300
+    # Task Management
+    TASK_TIMEOUT: int = 600  # 10 minutes
+    TASK_CLEANUP_INTERVAL: int = 3600  # 1 hour
+    
+    # Crawler Configuration
+    CRAWLER_TIMEOUT: int = 30
+    CRAWLER_MAX_RETRIES: int = 3
+    CRAWLER_USER_AGENT: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    
+    # Content Configuration
+    DEFAULT_WORD_COUNT: int = 1000
+    MIN_WORD_COUNT: int = 300
+    MAX_WORD_COUNT: int = 5000
     
     class Config:
         env_file = ".env"
+        env_file_encoding = "utf-8"
+        case_sensitive = True
 
 
-settings = Settings()
+@lru_cache()
+def get_settings() -> Settings:
+    """Get cached settings instance"""
+    return Settings()
+
+
+# Global settings instance
+settings = get_settings()
+

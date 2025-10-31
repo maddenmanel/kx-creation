@@ -6,17 +6,10 @@ fastapi==0.116.1
 uvicorn==0.30.6
 gunicorn==23.0.0
 
-# AutoGen相关
-pyautogen==0.2.33
-
 # 网页爬取相关
 requests==2.31.0
 beautifulsoup4==4.12.3
 lxml==5.3.0
-
-# 数据处理
-pydantic==2.8.2
-pydantic-settings==2.4.0
 
 # 微信公众号API
 wechatpy==1.8.18
@@ -26,4 +19,19 @@ loguru==0.7.2
 
 # 异步支持
 aiohttp==3.10.5
-asyncio
+
+# Pydantic设置
+pydantic-settings==2.5.2
+
+# AgentScope框架
+agentscope==1.0.6
+
+# 额外的AI模型支持
+openai>=1.0.0
+
+# 任务队列和状态管理
+redis>=4.0.0
+
+# 数据处理
+pandas>=2.0.0
+numpy>=1.24.0
